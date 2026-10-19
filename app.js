@@ -48,24 +48,27 @@ const I18N = {
     // Footer
     footer: 'Gemaakt voor Public & Society · Powered by willekeur & Elmo',
     // Vragenbeheer
-    pickLabel: 'Kies een vraag:',
-    remaining: (n) => `Nog ${n} ongebruikte vragen`,
-    lowWarning: (n) => `Let op: nog maar ${n} nieuwe vragen. Voeg er een paar toe via "Vragen beheren".`,
-    recycledTag: 'al eens gebruikt',
+    pickLabel: 'Kies een vraag van deze week:',
+    weekInfo: (n, weeks) => `Week ${n} van het schema · nog ${weeks} weken nieuwe vragen`,
+    lowWarning: (weeks) => `Let op: nog maar ${weeks} weken nieuwe vragen. Voeg er een paar toe via "Vragen beheren".`,
+    repeatInfo: (round) => `Ronde ${round}: alle vragen zijn al eens langsgekomen. Voeg nieuwe vragen toe via "Vragen beheren".`,
     manageBtn: 'Vragen beheren',
     manageTitle: 'Vragenbeheer',
-    statsLine: (total, used, left) => `${total} vragen in totaal · ${used} gebruikt · ${left} over`,
-    addTitle: 'Nieuwe vraag toevoegen',
-    addNl: 'Vraag (Nederlands)',
-    addEn: 'Vraag (Engels, optioneel)',
-    addBtn: 'Toevoegen',
-    added: 'Toegevoegd!',
-    duplicate: 'Deze vraag bestaat al.',
-    exportTitle: 'Opslaan in GitHub',
-    exportHelp: 'Download het bestand en upload het in je GitHub-repo (vervang questions-state.json). Dan blijven gebruikte en nieuwe vragen bewaard, ook op andere computers.',
-    exportBtn: 'Download questions-state.json',
-    unsaved: 'Er zijn wijzigingen die nog niet in GitHub staan.',
-    usedTitle: 'Gebruikte vragen',
+    statsLine: (total, weeks) => `${total} vragen in totaal · genoeg voor nog ${weeks} weken`,
+    scheduleTitle: 'Komende weken',
+    thisWeek: 'deze week',
+    bulkTitle: 'Vragen in bulk toevoegen',
+    bulkHelp: 'Eén vraag per regel. Engels is optioneel: zet het erachter met een tab (plakken uit Excel), " | " of ";". Je kunt ook een .txt- of .csv-bestand kiezen.',
+    bulkPlaceholder: 'Hoeveel planten heb je? | How many plants do you have?\nHoeveel apps staan er op je telefoon?',
+    bulkFile: 'Bestand kiezen',
+    bulkPreview: (fresh, dup) => `${fresh} nieuwe vragen${dup ? ` · ${dup} bestaan al (worden overgeslagen)` : ''}`,
+    bulkBtn: 'Toevoegen',
+    bulkDone: (n) => `${n} vragen toegevoegd. Ze komen achteraan in het schema.`,
+    bulkNone: 'Geen nieuwe vragen gevonden.',
+    exportTitle: 'Delen met het team (GitHub)',
+    exportHelp: 'Toegevoegde vragen staan nu alleen in deze browser. Download het bestand en upload het in je GitHub-repo (vervang extra-questions.json). Dan heeft iedereen dezelfde lijst en hetzelfde schema.',
+    exportBtn: 'Download extra-questions.json',
+    unsaved: (n) => `${n} toegevoegde vragen staan nog niet in GitHub.`,
     close: 'Sluiten',
   },
   en: {
@@ -100,24 +103,27 @@ const I18N = {
     // Footer
     footer: 'Made for Public & Society · Powered by randomness & Elmo',
     // Question management
-    pickLabel: 'Pick a question:',
-    remaining: (n) => `${n} unused questions left`,
-    lowWarning: (n) => `Heads up: only ${n} new questions left. Add a few via "Manage questions".`,
-    recycledTag: 'used before',
+    pickLabel: 'Pick one of this week’s questions:',
+    weekInfo: (n, weeks) => `Week ${n} of the schedule · ${weeks} weeks of new questions left`,
+    lowWarning: (weeks) => `Heads up: only ${weeks} weeks of new questions left. Add some via "Manage questions".`,
+    repeatInfo: (round) => `Round ${round}: every question has come up before. Add new ones via "Manage questions".`,
     manageBtn: 'Manage questions',
     manageTitle: 'Question manager',
-    statsLine: (total, used, left) => `${total} questions in total · ${used} used · ${left} left`,
-    addTitle: 'Add a new question',
-    addNl: 'Question (Dutch)',
-    addEn: 'Question (English, optional)',
-    addBtn: 'Add',
-    added: 'Added!',
-    duplicate: 'This question already exists.',
-    exportTitle: 'Save to GitHub',
-    exportHelp: 'Download the file and upload it to your GitHub repo (replace questions-state.json). That keeps used and new questions saved, also on other computers.',
-    exportBtn: 'Download questions-state.json',
-    unsaved: 'There are changes that are not in GitHub yet.',
-    usedTitle: 'Used questions',
+    statsLine: (total, weeks) => `${total} questions in total · enough for ${weeks} more weeks`,
+    scheduleTitle: 'Coming weeks',
+    thisWeek: 'this week',
+    bulkTitle: 'Add questions in bulk',
+    bulkHelp: 'One question per line. English is optional: add it after a tab (paste from Excel), " | " or ";". You can also pick a .txt or .csv file.',
+    bulkPlaceholder: 'Hoeveel planten heb je? | How many plants do you have?\nHoeveel apps staan er op je telefoon?',
+    bulkFile: 'Choose file',
+    bulkPreview: (fresh, dup) => `${fresh} new questions${dup ? ` · ${dup} already exist (skipped)` : ''}`,
+    bulkBtn: 'Add',
+    bulkDone: (n) => `${n} questions added. They go to the end of the schedule.`,
+    bulkNone: 'No new questions found.',
+    exportTitle: 'Share with the team (GitHub)',
+    exportHelp: 'Added questions currently live only in this browser. Download the file and upload it to your GitHub repo (replace extra-questions.json). Then everyone has the same list and schedule.',
+    exportBtn: 'Download extra-questions.json',
+    unsaved: (n) => `${n} added questions are not in GitHub yet.`,
     close: 'Close',
   }
 };
@@ -342,19 +348,23 @@ const ELMO_SHUFFLE = {
 
 // -------- State --------
 let selectedParticipants = [];
-let currentQuestion = null; // {id, nl, en, recycled}
-let candidateQuestions = []; // vragen waaruit je nu kunt kiezen
+let currentQuestion = null; // {id, nl, en}
+let candidateQuestions = []; // de vragen van deze week
 let currentLang = 'nl';
 
-// -------- Vragenbeheer: instellingen --------
-const CANDIDATE_COUNT = 3;         // aantal vragen om uit te kiezen
-const LOW_THRESHOLD = 10;          // waarschuwing als er minder nieuwe vragen over zijn
-const STATE_FILE = 'questions-state.json'; // bestand in de GitHub-repo (optioneel)
-const LS_STATE = 'checkin_question_state';
-const LS_DIRTY = 'checkin_question_state_dirty';
+// -------- Vragenschema: instellingen --------
+// Elke week krijgt vaste vragen, berekend uit de datum. Daardoor ziet
+// iedereen, op elk device, dezelfde vragen, zonder dat er iets wordt opgeslagen.
+// Een vraag komt pas terug als de hele lijst één keer rond is geweest.
+const SCHEDULE_START = '2026-10-19'; // maandag van week 1. Niet meer aanpassen na livegang.
+const SCHEDULE_SEED = 20261019;      // bepaalt de (vaste) volgorde. Niet meer aanpassen.
+const CANDIDATE_COUNT = 3;           // aantal vragen per week om uit te kiezen
+const LOW_WEEKS = 8;                 // waarschuwing als er minder weken nieuwe vragen over zijn
+const EXTRA_FILE = 'extra-questions.json'; // toegevoegde vragen in de GitHub-repo
+const LS_EXTRA = 'checkin_extra_questions';
 
-// used: { [vraag-id]: 'YYYY-MM-DD' }, custom: [{nl, en}]
-let questionState = { used: {}, custom: [] };
+let extraFromFile = [];  // uit extra-questions.json (gedeeld)
+let extraLocal = [];     // toegevoegd in deze browser, nog niet in GitHub
 
 // -------- Elements --------
 const $ = (id) => document.getElementById(id);
@@ -472,119 +482,205 @@ function refreshSelectionCount() {
 }
 
 // -------- Questions --------
-// Een vraag wordt herkend aan de Nederlandse tekst. Pas je de tekst van een
-// bestaande vraag aan, dan telt die als nieuwe (ongebruikte) vraag.
+// Een vraag wordt herkend aan de Nederlandse tekst.
 function questionId(q) {
-  return q.nl.trim().toLowerCase();
+  return String(q.nl).trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function allQuestions() {
+// Vaste volgorde: de standaardvragen in een vaste, "willekeurige" volgorde,
+// daarna de toegevoegde vragen in de volgorde waarin ze zijn toegevoegd.
+// Belangrijk: verwijder of herschrijf geen vragen na livegang, want dan
+// verschuift het schema. Toevoegen kan altijd (komt achteraan).
+function seededShuffle(arr, seed) {
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+let _orderCache = null;
+function questionOrder() {
+  if (_orderCache) return _orderCache;
   const seen = new Set();
   const list = [];
-  [...QUESTIONS, ...questionState.custom].forEach(q => {
+  const add = (q) => {
+    if (!q || !q.nl || !String(q.nl).trim()) return;
     const id = questionId(q);
     if (seen.has(id)) return;
     seen.add(id);
-    list.push({ id, nl: q.nl, en: q.en || q.nl });
-  });
+    list.push({ id, nl: String(q.nl).trim(), en: String(q.en || '').trim() || String(q.nl).trim() });
+  };
+  seededShuffle(QUESTIONS, SCHEDULE_SEED).forEach(add);
+  extraFromFile.forEach(add);
+  extraLocal.forEach(add);
+  _orderCache = list;
   return list;
 }
+function invalidateOrder() { _orderCache = null; }
 
-function unusedQuestions() {
-  return allQuestions().filter(q => !questionState.used[q.id]);
+// Weeknummer in het schema (0 = eerste week), op basis van maandag als weekstart.
+function scheduleWeek(date = new Date()) {
+  const [y, m, d] = SCHEDULE_START.split('-').map(Number);
+  const start = new Date(y, m - 1, d);
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((day - start) / 86400000);
+  return Math.max(0, Math.floor(diffDays / 7));
 }
 
-// --- Laden en opslaan ---
-// 1) questions-state.json uit de repo (gedeeld, via GitHub)
-// 2) localStorage in deze browser (wat sinds de laatste upload is gebeurd)
-// Beide worden samengevoegd, zodat er nooit iets kwijtraakt.
+function weekQuestions(week) {
+  const order = questionOrder();
+  const n = order.length;
+  if (!n) return [];
+  const count = Math.min(CANDIDATE_COUNT, n);
+  const offset = week * CANDIDATE_COUNT;
+  const result = [];
+  for (let i = 0; i < count; i++) result.push(order[(offset + i) % n]);
+  return result;
+}
+
+function scheduleInfo(week = scheduleWeek()) {
+  const n = questionOrder().length;
+  const offset = week * CANDIDATE_COUNT;
+  const round = Math.floor(offset / n) + 1;
+  // Hoeveel volle weken met nog nooit gebruikte vragen er na deze week nog over zijn
+  const weeksLeft = round === 1 ? Math.max(0, Math.floor((n - offset - CANDIDATE_COUNT) / CANDIDATE_COUNT)) : 0;
+  return { week, round, weeksLeft, total: n };
+}
+
+function weekMonday(week) {
+  const [y, m, d] = SCHEDULE_START.split('-').map(Number);
+  return new Date(y, m - 1, d + week * 7);
+}
+
+// --- Toegevoegde vragen laden/bewaren ---
 async function loadQuestionState() {
-  let fromFile = null;
   try {
-    const res = await fetch(STATE_FILE + '?t=' + Date.now(), { cache: 'no-store' });
-    if (res.ok) fromFile = await res.json();
+    const res = await fetch(EXTRA_FILE + '?t=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      extraFromFile = Array.isArray(data) ? data : (data.questions || []);
+    }
   } catch (e) { /* bestand bestaat nog niet of app draait lokaal: geen probleem */ }
 
-  let fromLocal = null;
-  try { fromLocal = JSON.parse(safeGet(LS_STATE) || 'null'); } catch (e) { /* negeren */ }
-
-  questionState = mergeStates(fromFile, fromLocal);
-  persistLocal(false);
+  try { extraLocal = JSON.parse(safeGet(LS_EXTRA) || '[]'); } catch (e) { extraLocal = []; }
+  // Wat inmiddels in het GitHub-bestand staat, hoeft niet meer lokaal bewaard te worden
+  const inFile = new Set(extraFromFile.filter(q => q && q.nl).map(questionId));
+  extraLocal = extraLocal.filter(q => q && q.nl && !inFile.has(questionId(q)));
+  safeSet(LS_EXTRA, JSON.stringify(extraLocal));
+  invalidateOrder();
   refreshManageButton();
 }
 
-function mergeStates(...states) {
-  const merged = { used: {}, custom: [] };
-  const customIds = new Set();
-  states.filter(Boolean).forEach(s => {
-    Object.entries(s.used || {}).forEach(([id, date]) => {
-      if (!merged.used[id] || String(date) > merged.used[id]) merged.used[id] = String(date);
-    });
-    (s.custom || []).forEach(q => {
-      if (!q || !q.nl) return;
-      const id = questionId(q);
-      if (customIds.has(id)) return;
-      customIds.add(id);
-      merged.custom.push({ nl: q.nl, en: q.en || '' });
-    });
+function addQuestions(list) {
+  const existing = new Set(questionOrder().map(q => q.id));
+  const fresh = [];
+  list.forEach(q => {
+    const id = questionId(q);
+    if (existing.has(id)) return;
+    existing.add(id);
+    fresh.push({ nl: q.nl, en: q.en || '' });
   });
-  return merged;
+  if (!fresh.length) return 0;
+  extraLocal = extraLocal.concat(fresh);
+  safeSet(LS_EXTRA, JSON.stringify(extraLocal));
+  invalidateOrder();
+  refreshManageButton();
+  renderCandidatePicker();
+  return fresh.length;
 }
 
-function persistLocal(markDirty = true) {
-  safeSet(LS_STATE, JSON.stringify(questionState));
-  if (markDirty) safeSet(LS_DIRTY, '1');
-}
-
-function hasUnsavedChanges() {
-  return safeGet(LS_DIRTY) === '1';
-}
-
-function exportQuestionState() {
+function exportExtraQuestions() {
+  const all = [...extraFromFile, ...extraLocal].filter(q => q && q.nl)
+    .map(q => ({ nl: String(q.nl).trim(), en: String(q.en || '').trim() }));
   const data = {
-    _info: 'Check-in Roulette: gebruikte en zelf toegevoegde vragen. Upload dit bestand naar de root van de GitHub-repo.',
-    updated: today(),
-    used: questionState.used,
-    custom: questionState.custom,
+    _info: 'Check-in Roulette: toegevoegde vragen. Upload dit bestand naar de root van de GitHub-repo. Alleen aanvullen, niet herschikken of verwijderen (anders verschuift het weekschema).',
+    questions: all,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = STATE_FILE;
+  a.download = EXTRA_FILE;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  safeSet(LS_DIRTY, '0');
-  if (isManageOpen()) renderManagePanel();
-  refreshManageButton();
 }
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// --- Kandidaten kiezen ---
-// Vraag kiezen = alleen selecteren. Een vraag telt pas als "gebruikt"
-// wanneer je de volgorde onthult (dus de scores echt hebt ingevuld).
-function pickNewQuestion() {
-  const unused = shuffle(unusedQuestions());
-  let candidates = unused.slice(0, CANDIDATE_COUNT);
-
-  // Vangnet: te weinig nieuwe vragen → aanvullen met de vragen
-  // die het langst geleden gebruikt zijn.
-  if (candidates.length < CANDIDATE_COUNT) {
-    const oldest = allQuestions()
-      .filter(q => questionState.used[q.id])
-      .sort((a, b) => questionState.used[a.id].localeCompare(questionState.used[b.id]))
-      .slice(0, CANDIDATE_COUNT - candidates.length)
-      .map(q => ({ ...q, recycled: true }));
-    candidates = candidates.concat(oldest);
+// --- Bulk-invoer verwerken ---
+// Ondersteunt: plakken uit Excel (tab), "NL | EN", "NL;EN", .txt, .csv, .json
+function parseBulk(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const data = JSON.parse(trimmed);
+      const arr = Array.isArray(data) ? data : (data.questions || []);
+      return arr.map(q => typeof q === 'string' ? { nl: q, en: '' } : { nl: q.nl || '', en: q.en || '' })
+        .filter(q => q.nl.trim());
+    } catch (e) { /* geen geldige JSON: als tekst behandelen */ }
   }
+  // Splitst een regel op een scheidingsteken, maar niet binnen "aanhalingstekens" (CSV)
+  const splitQuoted = (line, sep) => {
+    const out = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') {
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (c === sep && !inQ) { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out;
+  };
+  return trimmed.split(/\r?\n/).map(line => {
+    let parts;
+    if (line.includes('\t')) parts = splitQuoted(line, '\t');
+    else if (line.includes(' | ')) parts = line.split(' | ');
+    else parts = splitQuoted(line, ';');
+    const clean = (s) => (s || '').trim();
+    return { nl: clean(parts[0]), en: clean(parts[1]) };
+  })
+  .filter(q => q.nl && !/^(nl|vraag|question|nederlands)$/i.test(q.nl)); // kopregel overslaan
+}
 
-  candidateQuestions = candidates;
-  currentQuestion = candidates[0] || null;
+function bulkPreview(text) {
+  const parsed = parseBulk(text);
+  const existing = new Set(questionOrder().map(q => q.id));
+  const seen = new Set();
+  let fresh = 0, dup = 0;
+  parsed.forEach(q => {
+    const id = questionId(q);
+    if (existing.has(id) || seen.has(id)) dup++;
+    else { fresh++; seen.add(id); }
+  });
+  return { parsed, fresh, dup };
+}
+
+// --- Vragen van deze week tonen en kiezen ---
+function pickNewQuestion() {
+  candidateQuestions = weekQuestions(scheduleWeek());
+  if (!currentQuestion || !candidateQuestions.some(q => q.id === currentQuestion.id)) {
+    currentQuestion = candidateQuestions[0] || null;
+  }
+  refreshQuestionDisplay();
+}
+
+function nextCandidate() {
+  if (!candidateQuestions.length) return;
+  const idx = candidateQuestions.findIndex(q => q.id === (currentQuestion && currentQuestion.id));
+  currentQuestion = candidateQuestions[(idx + 1) % candidateQuestions.length];
   refreshQuestionDisplay();
 }
 
@@ -592,13 +688,6 @@ function selectCandidate(idx) {
   if (!candidateQuestions[idx]) return;
   currentQuestion = candidateQuestions[idx];
   refreshQuestionDisplay();
-}
-
-function markCurrentQuestionUsed() {
-  if (!currentQuestion) return;
-  questionState.used[currentQuestion.id] = today();
-  persistLocal(true);
-  refreshManageButton();
 }
 
 function refreshQuestionDisplay() {
@@ -619,19 +708,21 @@ function renderCandidatePicker() {
     textEl.insertAdjacentElement('afterend', picker);
   }
 
-  const unusedCount = unusedQuestions().length;
+  const info = scheduleInfo();
   const chips = candidateQuestions.map((q, i) => `
-    <button type="button" class="q-chip${q === currentQuestion ? ' active' : ''}" data-idx="${i}">
+    <button type="button" class="q-chip${currentQuestion && q.id === currentQuestion.id ? ' active' : ''}" data-idx="${i}">
       ${escapeHtml(q[currentLang])}
-      ${q.recycled ? `<span class="q-tag">${tr('recycledTag')}</span>` : ''}
     </button>`).join('');
+
+  let status;
+  if (info.round > 1) status = `<div class="q-remaining low">${tr('repeatInfo', info.round)}</div>`;
+  else if (info.weeksLeft < LOW_WEEKS) status = `<div class="q-remaining low">${tr('lowWarning', info.weeksLeft)}</div>`;
+  else status = `<div class="q-remaining">${tr('weekInfo', info.week + 1, info.weeksLeft)}</div>`;
 
   picker.innerHTML = `
     <div class="q-picker-label">${tr('pickLabel')}</div>
     <div class="q-chips">${chips}</div>
-    <div class="q-remaining${unusedCount < LOW_THRESHOLD ? ' low' : ''}">
-      ${unusedCount < LOW_THRESHOLD ? tr('lowWarning', unusedCount) : tr('remaining', unusedCount)}
-    </div>`;
+    ${status}`;
 
   picker.querySelectorAll('.q-chip').forEach(btn => {
     btn.addEventListener('click', () => selectCandidate(Number(btn.dataset.idx)));
@@ -657,9 +748,9 @@ function injectManageButton() {
 function refreshManageButton() {
   const btn = $('manageQuestionsBtn');
   if (!btn) return;
-  const left = unusedQuestions().length;
-  btn.textContent = `${tr('manageBtn')} (${left})`;
-  btn.classList.toggle('attention', left < LOW_THRESHOLD || hasUnsavedChanges());
+  const info = scheduleInfo();
+  btn.textContent = tr('manageBtn');
+  btn.classList.toggle('attention', info.round > 1 || info.weeksLeft < LOW_WEEKS || extraLocal.length > 0);
 }
 
 function isManageOpen() {
@@ -681,14 +772,16 @@ function closeManagePanel() {
   if (o) o.remove();
 }
 
-function renderManagePanel() {
+function renderManagePanel(message = '') {
   const overlay = $('manageOverlay');
   if (!overlay) return;
-  const total = allQuestions().length;
-  const left = unusedQuestions().length;
-  const usedList = allQuestions()
-    .filter(q => questionState.used[q.id])
-    .sort((a, b) => questionState.used[b.id].localeCompare(questionState.used[a.id]));
+  const info = scheduleInfo();
+  const fmt = (d) => d.toLocaleDateString(currentLang === 'nl' ? 'nl-NL' : 'en-GB', { day: 'numeric', month: 'short' });
+  const upcoming = [0, 1, 2, 3].map(k => {
+    const w = info.week + k;
+    const qs = weekQuestions(w).map(q => `<li>${escapeHtml(q[currentLang])}</li>`).join('');
+    return `<div class="q-week"><div class="q-week-date">${fmt(weekMonday(w))}${k === 0 ? ` · ${tr('thisWeek')}` : ''}</div><ul>${qs}</ul></div>`;
+  }).join('');
 
   overlay.innerHTML = `
     <div class="q-panel" role="dialog" aria-modal="true">
@@ -696,51 +789,49 @@ function renderManagePanel() {
         <h2>${tr('manageTitle')}</h2>
         <button type="button" class="q-close" aria-label="${tr('close')}">×</button>
       </div>
-      <p class="q-stats">${tr('statsLine', total, usedList.length, left)}</p>
-      ${left < LOW_THRESHOLD ? `<p class="q-warn">${tr('lowWarning', left)}</p>` : ''}
+      <p class="q-stats">${tr('statsLine', info.total, info.weeksLeft)}</p>
+      ${info.round > 1 ? `<p class="q-warn">${tr('repeatInfo', info.round)}</p>`
+        : info.weeksLeft < LOW_WEEKS ? `<p class="q-warn">${tr('lowWarning', info.weeksLeft)}</p>` : ''}
 
-      <h3>${tr('addTitle')}</h3>
-      <form class="q-add">
-        <input name="nl" required placeholder="${tr('addNl')}" />
-        <input name="en" placeholder="${tr('addEn')}" />
-        <button type="submit">${tr('addBtn')}</button>
-        <span class="q-add-msg"></span>
-      </form>
+      <h3>${tr('bulkTitle')}</h3>
+      <p class="q-help">${tr('bulkHelp')}</p>
+      <textarea class="q-bulk" rows="6" placeholder="${escapeHtml(tr('bulkPlaceholder'))}"></textarea>
+      <div class="q-row">
+        <label class="q-file">${tr('bulkFile')}<input type="file" accept=".txt,.csv,.tsv,.json,text/plain,text/csv,application/json" hidden /></label>
+        <button type="button" class="q-bulk-add" disabled>${tr('bulkBtn')}</button>
+        <span class="q-bulk-msg">${escapeHtml(message)}</span>
+      </div>
 
       <h3>${tr('exportTitle')}</h3>
+      ${extraLocal.length ? `<p class="q-warn">${tr('unsaved', extraLocal.length)}</p>` : ''}
       <p class="q-help">${tr('exportHelp')}</p>
-      ${hasUnsavedChanges() ? `<p class="q-warn">${tr('unsaved')}</p>` : ''}
       <button type="button" class="q-export">${tr('exportBtn')}</button>
 
-      <h3>${tr('usedTitle')} (${usedList.length})</h3>
-      <ul class="q-used">
-        ${usedList.map(q => `<li><span>${escapeHtml(questionState.used[q.id])}</span> ${escapeHtml(q[currentLang])}</li>`).join('')}
-      </ul>
+      <h3>${tr('scheduleTitle')}</h3>
+      ${upcoming}
     </div>`;
 
-  overlay.querySelector('.q-close').addEventListener('click', closeManagePanel);
-  overlay.querySelector('.q-export').addEventListener('click', exportQuestionState);
-  overlay.querySelector('.q-add').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const nl = form.nl.value.trim();
-    const en = form.en.value.trim();
-    const msg = form.querySelector('.q-add-msg');
-    if (!nl) return;
-    if (allQuestions().some(q => q.id === questionId({ nl }))) {
-      msg.textContent = tr('duplicate');
-      return;
-    }
-    questionState.custom.push({ nl, en });
-    persistLocal(true);
-    refreshManageButton();
-    renderManagePanel();
-    const newMsg = $('manageOverlay').querySelector('.q-add-msg');
-    if (newMsg) newMsg.textContent = tr('added');
-    // Als er eerder te weinig keuze was, meteen nieuwe kandidaten tonen
-    if (candidateQuestions.some(q => q.recycled)) pickNewQuestion();
-    else renderCandidatePicker();
+  const textarea = overlay.querySelector('.q-bulk');
+  const addBtn = overlay.querySelector('.q-bulk-add');
+  const msg = overlay.querySelector('.q-bulk-msg');
+  const updatePreview = () => {
+    const p = bulkPreview(textarea.value);
+    addBtn.disabled = p.fresh === 0;
+    msg.textContent = textarea.value.trim() ? tr('bulkPreview', p.fresh, p.dup) : '';
+  };
+  textarea.addEventListener('input', updatePreview);
+  overlay.querySelector('.q-file input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    textarea.value = await file.text();
+    updatePreview();
   });
+  addBtn.addEventListener('click', () => {
+    const added = addQuestions(parseBulk(textarea.value));
+    renderManagePanel(added ? tr('bulkDone', added) : tr('bulkNone'));
+  });
+  overlay.querySelector('.q-close').addEventListener('click', closeManagePanel);
+  overlay.querySelector('.q-export').addEventListener('click', exportExtraQuestions);
 }
 
 function injectQuestionStyles() {
@@ -755,7 +846,6 @@ function injectQuestionStyles() {
       border: 2px solid rgba(127,127,127,.35); background: transparent; color: inherit; cursor: pointer; }
     .q-chip:hover { border-color: rgba(127,127,127,.7); }
     .q-chip.active { border-color: #58EB81; background: rgba(88,235,129,.15); font-weight: 600; }
-    .q-tag { display: inline-block; margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(229,197,116,.35); }
     .q-remaining { margin-top: 10px; font-size: 13px; opacity: .75; }
     .q-remaining.low { opacity: 1; color: #c0392b; font-weight: 600; }
     .q-manage-btn { position: fixed; left: 16px; bottom: 16px; z-index: 900; font: inherit; font-size: 13px;
@@ -765,23 +855,26 @@ function injectQuestionStyles() {
       border-radius: 50%; background: #e74c3c; vertical-align: middle; }
     .q-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45); display: flex;
       align-items: center; justify-content: center; padding: 16px; }
-    .q-panel { background: #fff; color: #222; border-radius: 16px; max-width: 560px; width: 100%; max-height: 90vh;
+    .q-panel { background: #fff; color: #222; border-radius: 16px; max-width: 600px; width: 100%; max-height: 90vh;
       overflow: auto; padding: 20px 22px; font-size: 14px; }
     .q-panel h2 { margin: 0; font-size: 20px; }
-    .q-panel h3 { margin: 18px 0 8px; font-size: 15px; }
+    .q-panel h3 { margin: 20px 0 8px; font-size: 15px; }
     .q-panel-head { display: flex; justify-content: space-between; align-items: center; }
     .q-close { font-size: 24px; background: none; border: none; cursor: pointer; color: inherit; }
     .q-stats { opacity: .75; margin: 6px 0 0; }
-    .q-warn { color: #c0392b; font-weight: 600; }
+    .q-warn { color: #c0392b; font-weight: 600; margin: 6px 0; }
     .q-help { margin: 0 0 8px; opacity: .8; }
-    .q-add { display: flex; flex-direction: column; gap: 8px; }
-    .q-add input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; }
-    .q-add button, .q-export { font: inherit; padding: 8px 14px; border-radius: 8px; border: none;
-      background: #222; color: #fff; cursor: pointer; align-self: flex-start; }
-    .q-add-msg { font-size: 13px; opacity: .8; }
-    .q-used { list-style: none; padding: 0; margin: 0; }
-    .q-used li { padding: 6px 0; border-bottom: 1px solid #eee; }
-    .q-used li span { font-variant-numeric: tabular-nums; opacity: .6; margin-right: 8px; }
+    .q-bulk { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 8px 10px;
+      border-radius: 8px; border: 1px solid #ccc; resize: vertical; }
+    .q-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+    .q-file, .q-bulk-add, .q-export { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .q-file { border: 1px solid #ccc; background: #f5f5f5; }
+    .q-bulk-add, .q-export { border: none; background: #222; color: #fff; }
+    .q-bulk-add:disabled { opacity: .4; cursor: default; }
+    .q-bulk-msg { font-size: 13px; opacity: .8; }
+    .q-week { margin-bottom: 10px; }
+    .q-week-date { font-size: 12px; font-weight: 600; opacity: .6; text-transform: uppercase; letter-spacing: .05em; }
+    .q-week ul { margin: 4px 0 0; padding-left: 18px; }
   `;
   document.head.appendChild(style);
 }
@@ -792,14 +885,13 @@ function shuffleQuestion() {
   textEl.style.transform = 'scale(0.95)';
   textEl.style.transition = 'all 0.2s ease';
   setTimeout(() => {
-    pickNewQuestion();
+    nextCandidate();
     textEl.style.opacity = '1';
     textEl.style.transform = 'scale(1)';
     $('elmoFloatingBubbleQ').textContent = pickRandom(ELMO_SHUFFLE[currentLang]);
     showElmoBubble('q', 2500);
   }, 200);
 }
-
 // -------- Answers --------
 function renderAnswers() {
   const list = $('answersList');
@@ -858,8 +950,6 @@ function reveal() {
   });
 
   renderRanking(ordered);
-  // Pas nu telt de vraag als gebruikt: hij komt daarna niet meer terug.
-  markCurrentQuestionUsed();
   $('revealQuestion').textContent = currentQuestion[currentLang];
   $('elmoFloatingBubbleR').textContent = pickRandom(ELMO_REVEAL[currentLang]);
   goTo('screen-reveal');
@@ -913,7 +1003,7 @@ function restart() {
 }
 
 function newQuestion() {
-  pickNewQuestion();
+  nextCandidate();
   renderAnswers();
   goTo('screen-question');
 }
