@@ -47,6 +47,26 @@ const I18N = {
     tied: 'Gelijk → Elmo heeft gegokt',
     // Footer
     footer: 'Gemaakt voor Public & Society · Powered by willekeur & Elmo',
+    // Vragenbeheer
+    pickLabel: 'Kies een vraag:',
+    remaining: (n) => `Nog ${n} ongebruikte vragen`,
+    lowWarning: (n) => `Let op: nog maar ${n} nieuwe vragen. Voeg er een paar toe via "Vragen beheren".`,
+    recycledTag: 'al eens gebruikt',
+    manageBtn: 'Vragen beheren',
+    manageTitle: 'Vragenbeheer',
+    statsLine: (total, used, left) => `${total} vragen in totaal · ${used} gebruikt · ${left} over`,
+    addTitle: 'Nieuwe vraag toevoegen',
+    addNl: 'Vraag (Nederlands)',
+    addEn: 'Vraag (Engels, optioneel)',
+    addBtn: 'Toevoegen',
+    added: 'Toegevoegd!',
+    duplicate: 'Deze vraag bestaat al.',
+    exportTitle: 'Opslaan in GitHub',
+    exportHelp: 'Download het bestand en upload het in je GitHub-repo (vervang questions-state.json). Dan blijven gebruikte en nieuwe vragen bewaard, ook op andere computers.',
+    exportBtn: 'Download questions-state.json',
+    unsaved: 'Er zijn wijzigingen die nog niet in GitHub staan.',
+    usedTitle: 'Gebruikte vragen',
+    close: 'Sluiten',
   },
   en: {
     // Intro
@@ -79,6 +99,26 @@ const I18N = {
     tied: 'Tied → Elmo rolled the dice',
     // Footer
     footer: 'Made for Public & Society · Powered by randomness & Elmo',
+    // Question management
+    pickLabel: 'Pick a question:',
+    remaining: (n) => `${n} unused questions left`,
+    lowWarning: (n) => `Heads up: only ${n} new questions left. Add a few via "Manage questions".`,
+    recycledTag: 'used before',
+    manageBtn: 'Manage questions',
+    manageTitle: 'Question manager',
+    statsLine: (total, used, left) => `${total} questions in total · ${used} used · ${left} left`,
+    addTitle: 'Add a new question',
+    addNl: 'Question (Dutch)',
+    addEn: 'Question (English, optional)',
+    addBtn: 'Add',
+    added: 'Added!',
+    duplicate: 'This question already exists.',
+    exportTitle: 'Save to GitHub',
+    exportHelp: 'Download the file and upload it to your GitHub repo (replace questions-state.json). That keeps used and new questions saved, also on other computers.',
+    exportBtn: 'Download questions-state.json',
+    unsaved: 'There are changes that are not in GitHub yet.',
+    usedTitle: 'Used questions',
+    close: 'Close',
   }
 };
 
@@ -302,33 +342,59 @@ const ELMO_SHUFFLE = {
 
 // -------- State --------
 let selectedParticipants = [];
-let currentQuestion = null; // {nl, en}
-let usedQuestions = [];
+let currentQuestion = null; // {id, nl, en, recycled}
+let candidateQuestions = []; // vragen waaruit je nu kunt kiezen
 let currentLang = 'nl';
+
+// -------- Vragenbeheer: instellingen --------
+const CANDIDATE_COUNT = 3;         // aantal vragen om uit te kiezen
+const LOW_THRESHOLD = 10;          // waarschuwing als er minder nieuwe vragen over zijn
+const STATE_FILE = 'questions-state.json'; // bestand in de GitHub-repo (optioneel)
+const LS_STATE = 'checkin_question_state';
+const LS_DIRTY = 'checkin_question_state_dirty';
+
+// used: { [vraag-id]: 'YYYY-MM-DD' }, custom: [{nl, en}]
+let questionState = { used: {}, custom: [] };
 
 // -------- Elements --------
 const $ = (id) => document.getElementById(id);
 
 // -------- Init --------
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Restore language from localStorage
-  const saved = localStorage.getItem('checkin_lang');
+  const saved = safeGet('checkin_lang');
   if (saved === 'en' || saved === 'nl') currentLang = saved;
   applyLang();
 
   renderParticipants();
+  injectQuestionStyles();
+  injectManageButton();
+  await loadQuestionState();
   pickNewQuestion();
   refreshElmoTexts();
 });
+
+function safeGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function safeSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* privé-venster e.d. */ }
+}
+function tr(key, ...args) {
+  const v = I18N[currentLang][key];
+  return typeof v === 'function' ? v(...args) : v;
+}
 
 // -------- Language --------
 function setLang(lang) {
   if (lang !== 'nl' && lang !== 'en') return;
   currentLang = lang;
-  localStorage.setItem('checkin_lang', lang);
+  safeSet('checkin_lang', lang);
   applyLang();
   // Update dynamic bits
   refreshQuestionDisplay();
+  refreshManageButton();
+  if (isManageOpen()) renderManagePanel();
   refreshAnswersPlaceholders();
   refreshElmoTexts();
   refreshSelectionCount();
@@ -406,21 +472,318 @@ function refreshSelectionCount() {
 }
 
 // -------- Questions --------
+// Een vraag wordt herkend aan de Nederlandse tekst. Pas je de tekst van een
+// bestaande vraag aan, dan telt die als nieuwe (ongebruikte) vraag.
+function questionId(q) {
+  return q.nl.trim().toLowerCase();
+}
+
+function allQuestions() {
+  const seen = new Set();
+  const list = [];
+  [...QUESTIONS, ...questionState.custom].forEach(q => {
+    const id = questionId(q);
+    if (seen.has(id)) return;
+    seen.add(id);
+    list.push({ id, nl: q.nl, en: q.en || q.nl });
+  });
+  return list;
+}
+
+function unusedQuestions() {
+  return allQuestions().filter(q => !questionState.used[q.id]);
+}
+
+// --- Laden en opslaan ---
+// 1) questions-state.json uit de repo (gedeeld, via GitHub)
+// 2) localStorage in deze browser (wat sinds de laatste upload is gebeurd)
+// Beide worden samengevoegd, zodat er nooit iets kwijtraakt.
+async function loadQuestionState() {
+  let fromFile = null;
+  try {
+    const res = await fetch(STATE_FILE + '?t=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) fromFile = await res.json();
+  } catch (e) { /* bestand bestaat nog niet of app draait lokaal: geen probleem */ }
+
+  let fromLocal = null;
+  try { fromLocal = JSON.parse(safeGet(LS_STATE) || 'null'); } catch (e) { /* negeren */ }
+
+  questionState = mergeStates(fromFile, fromLocal);
+  persistLocal(false);
+  refreshManageButton();
+}
+
+function mergeStates(...states) {
+  const merged = { used: {}, custom: [] };
+  const customIds = new Set();
+  states.filter(Boolean).forEach(s => {
+    Object.entries(s.used || {}).forEach(([id, date]) => {
+      if (!merged.used[id] || String(date) > merged.used[id]) merged.used[id] = String(date);
+    });
+    (s.custom || []).forEach(q => {
+      if (!q || !q.nl) return;
+      const id = questionId(q);
+      if (customIds.has(id)) return;
+      customIds.add(id);
+      merged.custom.push({ nl: q.nl, en: q.en || '' });
+    });
+  });
+  return merged;
+}
+
+function persistLocal(markDirty = true) {
+  safeSet(LS_STATE, JSON.stringify(questionState));
+  if (markDirty) safeSet(LS_DIRTY, '1');
+}
+
+function hasUnsavedChanges() {
+  return safeGet(LS_DIRTY) === '1';
+}
+
+function exportQuestionState() {
+  const data = {
+    _info: 'Check-in Roulette: gebruikte en zelf toegevoegde vragen. Upload dit bestand naar de root van de GitHub-repo.',
+    updated: today(),
+    used: questionState.used,
+    custom: questionState.custom,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = STATE_FILE;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  safeSet(LS_DIRTY, '0');
+  if (isManageOpen()) renderManagePanel();
+  refreshManageButton();
+}
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// --- Kandidaten kiezen ---
+// Vraag kiezen = alleen selecteren. Een vraag telt pas als "gebruikt"
+// wanneer je de volgorde onthult (dus de scores echt hebt ingevuld).
 function pickNewQuestion() {
-  if (usedQuestions.length >= QUESTIONS.length) usedQuestions = [];
-  const available = QUESTIONS.filter((_, i) => !usedQuestions.includes(i));
-  const indices = available.length
-    ? QUESTIONS.map((_, i) => i).filter(i => !usedQuestions.includes(i))
-    : QUESTIONS.map((_, i) => i);
-  const pickIdx = indices[Math.floor(Math.random() * indices.length)];
-  usedQuestions.push(pickIdx);
-  currentQuestion = QUESTIONS[pickIdx];
+  const unused = shuffle(unusedQuestions());
+  let candidates = unused.slice(0, CANDIDATE_COUNT);
+
+  // Vangnet: te weinig nieuwe vragen → aanvullen met de vragen
+  // die het langst geleden gebruikt zijn.
+  if (candidates.length < CANDIDATE_COUNT) {
+    const oldest = allQuestions()
+      .filter(q => questionState.used[q.id])
+      .sort((a, b) => questionState.used[a.id].localeCompare(questionState.used[b.id]))
+      .slice(0, CANDIDATE_COUNT - candidates.length)
+      .map(q => ({ ...q, recycled: true }));
+    candidates = candidates.concat(oldest);
+  }
+
+  candidateQuestions = candidates;
+  currentQuestion = candidates[0] || null;
   refreshQuestionDisplay();
+}
+
+function selectCandidate(idx) {
+  if (!candidateQuestions[idx]) return;
+  currentQuestion = candidateQuestions[idx];
+  refreshQuestionDisplay();
+}
+
+function markCurrentQuestionUsed() {
+  if (!currentQuestion) return;
+  questionState.used[currentQuestion.id] = today();
+  persistLocal(true);
+  refreshManageButton();
 }
 
 function refreshQuestionDisplay() {
   if (!currentQuestion) return;
-  if ($('questionText')) $('questionText').textContent = currentQuestion[currentLang];
+  const textEl = $('questionText');
+  if (textEl) textEl.textContent = currentQuestion[currentLang];
+  renderCandidatePicker();
+}
+
+function renderCandidatePicker() {
+  const textEl = $('questionText');
+  if (!textEl) return;
+  let picker = $('questionPicker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'questionPicker';
+    picker.className = 'q-picker';
+    textEl.insertAdjacentElement('afterend', picker);
+  }
+
+  const unusedCount = unusedQuestions().length;
+  const chips = candidateQuestions.map((q, i) => `
+    <button type="button" class="q-chip${q === currentQuestion ? ' active' : ''}" data-idx="${i}">
+      ${escapeHtml(q[currentLang])}
+      ${q.recycled ? `<span class="q-tag">${tr('recycledTag')}</span>` : ''}
+    </button>`).join('');
+
+  picker.innerHTML = `
+    <div class="q-picker-label">${tr('pickLabel')}</div>
+    <div class="q-chips">${chips}</div>
+    <div class="q-remaining${unusedCount < LOW_THRESHOLD ? ' low' : ''}">
+      ${unusedCount < LOW_THRESHOLD ? tr('lowWarning', unusedCount) : tr('remaining', unusedCount)}
+    </div>`;
+
+  picker.querySelectorAll('.q-chip').forEach(btn => {
+    btn.addEventListener('click', () => selectCandidate(Number(btn.dataset.idx)));
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// --- Vragenbeheer-paneel ---
+function injectManageButton() {
+  if ($('manageQuestionsBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'manageQuestionsBtn';
+  btn.type = 'button';
+  btn.className = 'q-manage-btn';
+  btn.addEventListener('click', openManagePanel);
+  document.body.appendChild(btn);
+  refreshManageButton();
+}
+
+function refreshManageButton() {
+  const btn = $('manageQuestionsBtn');
+  if (!btn) return;
+  const left = unusedQuestions().length;
+  btn.textContent = `${tr('manageBtn')} (${left})`;
+  btn.classList.toggle('attention', left < LOW_THRESHOLD || hasUnsavedChanges());
+}
+
+function isManageOpen() {
+  return !!$('manageOverlay');
+}
+
+function openManagePanel() {
+  if (isManageOpen()) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'manageOverlay';
+  overlay.className = 'q-overlay';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeManagePanel(); });
+  document.body.appendChild(overlay);
+  renderManagePanel();
+}
+
+function closeManagePanel() {
+  const o = $('manageOverlay');
+  if (o) o.remove();
+}
+
+function renderManagePanel() {
+  const overlay = $('manageOverlay');
+  if (!overlay) return;
+  const total = allQuestions().length;
+  const left = unusedQuestions().length;
+  const usedList = allQuestions()
+    .filter(q => questionState.used[q.id])
+    .sort((a, b) => questionState.used[b.id].localeCompare(questionState.used[a.id]));
+
+  overlay.innerHTML = `
+    <div class="q-panel" role="dialog" aria-modal="true">
+      <div class="q-panel-head">
+        <h2>${tr('manageTitle')}</h2>
+        <button type="button" class="q-close" aria-label="${tr('close')}">×</button>
+      </div>
+      <p class="q-stats">${tr('statsLine', total, usedList.length, left)}</p>
+      ${left < LOW_THRESHOLD ? `<p class="q-warn">${tr('lowWarning', left)}</p>` : ''}
+
+      <h3>${tr('addTitle')}</h3>
+      <form class="q-add">
+        <input name="nl" required placeholder="${tr('addNl')}" />
+        <input name="en" placeholder="${tr('addEn')}" />
+        <button type="submit">${tr('addBtn')}</button>
+        <span class="q-add-msg"></span>
+      </form>
+
+      <h3>${tr('exportTitle')}</h3>
+      <p class="q-help">${tr('exportHelp')}</p>
+      ${hasUnsavedChanges() ? `<p class="q-warn">${tr('unsaved')}</p>` : ''}
+      <button type="button" class="q-export">${tr('exportBtn')}</button>
+
+      <h3>${tr('usedTitle')} (${usedList.length})</h3>
+      <ul class="q-used">
+        ${usedList.map(q => `<li><span>${escapeHtml(questionState.used[q.id])}</span> ${escapeHtml(q[currentLang])}</li>`).join('')}
+      </ul>
+    </div>`;
+
+  overlay.querySelector('.q-close').addEventListener('click', closeManagePanel);
+  overlay.querySelector('.q-export').addEventListener('click', exportQuestionState);
+  overlay.querySelector('.q-add').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const nl = form.nl.value.trim();
+    const en = form.en.value.trim();
+    const msg = form.querySelector('.q-add-msg');
+    if (!nl) return;
+    if (allQuestions().some(q => q.id === questionId({ nl }))) {
+      msg.textContent = tr('duplicate');
+      return;
+    }
+    questionState.custom.push({ nl, en });
+    persistLocal(true);
+    refreshManageButton();
+    renderManagePanel();
+    const newMsg = $('manageOverlay').querySelector('.q-add-msg');
+    if (newMsg) newMsg.textContent = tr('added');
+    // Als er eerder te weinig keuze was, meteen nieuwe kandidaten tonen
+    if (candidateQuestions.some(q => q.recycled)) pickNewQuestion();
+    else renderCandidatePicker();
+  });
+}
+
+function injectQuestionStyles() {
+  if ($('questionManagerStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'questionManagerStyles';
+  style.textContent = `
+    .q-picker { margin-top: 16px; text-align: left; }
+    .q-picker-label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; margin-bottom: 8px; }
+    .q-chips { display: flex; flex-direction: column; gap: 8px; }
+    .q-chip { font: inherit; font-size: 14px; text-align: left; padding: 10px 14px; border-radius: 12px;
+      border: 2px solid rgba(127,127,127,.35); background: transparent; color: inherit; cursor: pointer; }
+    .q-chip:hover { border-color: rgba(127,127,127,.7); }
+    .q-chip.active { border-color: #58EB81; background: rgba(88,235,129,.15); font-weight: 600; }
+    .q-tag { display: inline-block; margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(229,197,116,.35); }
+    .q-remaining { margin-top: 10px; font-size: 13px; opacity: .75; }
+    .q-remaining.low { opacity: 1; color: #c0392b; font-weight: 600; }
+    .q-manage-btn { position: fixed; left: 16px; bottom: 16px; z-index: 900; font: inherit; font-size: 13px;
+      padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(127,127,127,.4); background: #fff; color: #222;
+      cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+    .q-manage-btn.attention::after { content: ''; display: inline-block; width: 8px; height: 8px; margin-left: 6px;
+      border-radius: 50%; background: #e74c3c; vertical-align: middle; }
+    .q-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45); display: flex;
+      align-items: center; justify-content: center; padding: 16px; }
+    .q-panel { background: #fff; color: #222; border-radius: 16px; max-width: 560px; width: 100%; max-height: 90vh;
+      overflow: auto; padding: 20px 22px; font-size: 14px; }
+    .q-panel h2 { margin: 0; font-size: 20px; }
+    .q-panel h3 { margin: 18px 0 8px; font-size: 15px; }
+    .q-panel-head { display: flex; justify-content: space-between; align-items: center; }
+    .q-close { font-size: 24px; background: none; border: none; cursor: pointer; color: inherit; }
+    .q-stats { opacity: .75; margin: 6px 0 0; }
+    .q-warn { color: #c0392b; font-weight: 600; }
+    .q-help { margin: 0 0 8px; opacity: .8; }
+    .q-add { display: flex; flex-direction: column; gap: 8px; }
+    .q-add input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; }
+    .q-add button, .q-export { font: inherit; padding: 8px 14px; border-radius: 8px; border: none;
+      background: #222; color: #fff; cursor: pointer; align-self: flex-start; }
+    .q-add-msg { font-size: 13px; opacity: .8; }
+    .q-used { list-style: none; padding: 0; margin: 0; }
+    .q-used li { padding: 6px 0; border-bottom: 1px solid #eee; }
+    .q-used li span { font-variant-numeric: tabular-nums; opacity: .6; margin-right: 8px; }
+  `;
+  document.head.appendChild(style);
 }
 
 function shuffleQuestion() {
@@ -495,6 +858,8 @@ function reveal() {
   });
 
   renderRanking(ordered);
+  // Pas nu telt de vraag als gebruikt: hij komt daarna niet meer terug.
+  markCurrentQuestionUsed();
   $('revealQuestion').textContent = currentQuestion[currentLang];
   $('elmoFloatingBubbleR').textContent = pickRandom(ELMO_REVEAL[currentLang]);
   goTo('screen-reveal');
@@ -587,6 +952,10 @@ function showElmoBubble(key, duration = 3000) {
     bubble.classList.remove('show');
   }, duration);
 }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeManagePanel();
+});
 
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.participant-card');
